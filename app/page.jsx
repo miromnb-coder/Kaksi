@@ -12,7 +12,7 @@ function fileToDataUrl(file) {
 }
 
 export default function Page() {
-  const [text, setText] = useState("");
+  const [text, setText] = useState("Mitä kuvassa näkyy?");
   const [imageBase64, setImageBase64] = useState("");
   const [reply, setReply] = useState("");
   const [loading, setLoading] = useState(false);
@@ -21,26 +21,43 @@ export default function Page() {
     setLoading(true);
     setReply("");
 
-    const r = await fetch("/api/chat", {
+    const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text, imageBase64 }),
     });
 
-    const data = await r.json();
-    setReply(data.reply || JSON.stringify(data.error || {}));
+    const data = await res.json();
+
+    if (data.error) {
+      setReply("ERROR: " + JSON.stringify(data.error));
+    } else {
+      setReply(data.reply || "");
+      speechSynthesis.cancel();
+      const u = new SpeechSynthesisUtterance(data.reply || "");
+      u.lang = "fi-FI";
+      speechSynthesis.speak(u);
+    }
+
     setLoading(false);
   }
 
   return (
-    <main style={{ padding: 24, maxWidth: 520, margin: "0 auto" }}>
-      <h1 style={{ fontSize: 32, marginBottom: 20 }}>Halo AI</h1>
+    <main style={{ maxWidth: 520, margin: "0 auto", padding: 24, fontFamily: "system-ui" }}>
+      <div style={{ fontSize: 28, fontWeight: 700, marginBottom: 20 }}>Halo AI</div>
 
       <input
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder="Kysy jotain..."
-        style={{ width: "100%", padding: 14, fontSize: 18, marginBottom: 12 }}
+        style={{
+          width: "100%",
+          padding: 14,
+          borderRadius: 16,
+          border: "1px solid #ddd",
+          fontSize: 18,
+          marginBottom: 12,
+        }}
       />
 
       <input
@@ -53,14 +70,39 @@ export default function Page() {
           const dataUrl = await fileToDataUrl(file);
           setImageBase64(dataUrl);
         }}
-        style={{ marginBottom: 12 }}
+        style={{ width: "100%", marginBottom: 12 }}
       />
 
-      <button onClick={send} disabled={loading} style={{ padding: 14, width: "100%" }}>
+      <button
+        onClick={send}
+        disabled={loading}
+        style={{
+          width: "100%",
+          padding: 14,
+          borderRadius: 16,
+          border: 0,
+          background: "#111",
+          color: "#fff",
+          fontSize: 18,
+          fontWeight: 600,
+        }}
+      >
         {loading ? "Ajatellaan..." : "Kysy AI:lta"}
       </button>
 
-      <p style={{ marginTop: 20, fontSize: 18, whiteSpace: "pre-wrap" }}>{reply}</p>
+      <div
+        style={{
+          marginTop: 20,
+          padding: 16,
+          minHeight: 120,
+          borderRadius: 20,
+          background: "#f6f6f6",
+          whiteSpace: "pre-wrap",
+          fontSize: 18,
+        }}
+      >
+        {reply || "Vastaus näkyy tässä."}
+      </div>
     </main>
   );
 }
