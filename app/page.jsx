@@ -91,7 +91,7 @@ export default function Page() {
     const res = await fetch("/api/chat", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+      body: JSON.stringify({ message })
         messages: nextMessages,
       }),
     });
