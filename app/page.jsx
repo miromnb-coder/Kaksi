@@ -31,9 +31,9 @@ function escapeHtml(str) {
 export default function Page() {
   const videoRef = useRef(null);
   const streamRef = useRef(null);
+  const fileRef = useRef(null);
   const analyzingRef = useRef(false);
   const lastAnalyzeRef = useRef(0);
-  const fileRef = useRef(null);
 
   const [busy, setBusy] = useState(false);
   const [cameraReady, setCameraReady] = useState(false);
@@ -41,7 +41,7 @@ export default function Page() {
   const [autoAnalyze, setAutoAnalyze] = useState(true);
   const [autoSpeak, setAutoSpeak] = useState(true);
   const [latestReply, setLatestReply] = useState("Valmis.");
-  const [status, setStatus] = useState("Odottamassa");
+  const [status, setStatus] = useState("Odottaa");
   const [errorText, setErrorText] = useState("");
   const [selectedImage, setSelectedImage] = useState("");
   const [input, setInput] = useState("");
@@ -101,21 +101,6 @@ export default function Page() {
     },
     [facingMode]
   );
-
-  useEffect(() => {
-    const id = setInterval(() => {
-      if (!autoAnalyze || !cameraReady) return;
-      if (busy || analyzingRef.current) return;
-
-      const now = Date.now();
-      if (now - lastAnalyzeRef.current < AUTO_ANALYZE_MS) return;
-      lastAnalyzeRef.current = now;
-
-      void analyzeCurrentFrame("Kerro mitä näet kuvassa lyhyesti.");
-    }, 700);
-
-    return () => clearInterval(id);
-  }, [autoAnalyze, cameraReady, busy]);
 
   useEffect(() => {
     return () => {
@@ -193,7 +178,7 @@ export default function Page() {
     [autoSpeak, cameraReady, captureFrame, history]
   );
 
-  async function sendText() {
+  const sendText = useCallback(async () => {
     const text = input.trim();
     if (!text) return;
 
@@ -248,16 +233,22 @@ export default function Page() {
       setBusy(false);
       setStatus("Valmis");
     }
-  }
+  }, [autoSpeak, history, input]);
 
-  function clearAll() {
-    const reset = [{ role: "assistant", text: "Hei. Paina Start ja kysy jotain." }];
-    setHistory(reset);
-    setLatestReply("Valmis.");
-    setSelectedImage("");
-    setInput("");
-    setErrorText("");
-  }
+  useEffect(() => {
+    const id = setInterval(() => {
+      if (!autoAnalyze || !cameraReady) return;
+      if (busy || analyzingRef.current) return;
+
+      const now = Date.now();
+      if (now - lastAnalyzeRef.current < AUTO_ANALYZE_MS) return;
+      lastAnalyzeRef.current = now;
+
+      void analyzeCurrentFrame("Kerro mitä näet kuvassa lyhyesti.");
+    }, 700);
+
+    return () => clearInterval(id);
+  }, [autoAnalyze, cameraReady, busy, analyzeCurrentFrame]);
 
   return (
     <main className="app">
@@ -270,62 +261,81 @@ export default function Page() {
             <div className={`dot ${busy ? "pulse" : ""}`} />
             <div>
               <div className="title">Noa HUD</div>
-              <div className="sub">{status} • {cameraReady ? "kamera päällä" : "kamera pois"}</div>
+              <div className="sub">
+                {status} • {cameraReady ? "kamera päällä" : "kamera pois"}
+              </div>
             </div>
           </div>
 
-          <button className="smallBtn" onClick={() => setFacingMode((m) => (m === "environment" ? "user" : "environment"))}>
-            Flip
-          </button>
+          <div className="topButtons">
+            <button
+              className="smallBtn"
+              onClick={() =>
+                setFacingMode((m) => (m === "environment" ? "user" : "environment"))
+              }
+            >
+              Flip
+            </button>
+            <button className="smallBtn" onClick={() => void startCamera()}>
+              Start
+            </button>
+          </div>
         </div>
 
         <div className="centerFrame" />
 
-        <div className="statusCard">
-          <div className="statusLine">
-            <span className={`state ${busy ? "busy" : ""}`}>{status}</span>
-            <span className="mini">vision mode</span>
-          </div>
-
-          <div className="reply">{escapeHtml(latestReply).slice(0, 220)}</div>
-
-          <div className="toggles">
-            <button className={`toggle ${autoAnalyze ? "on" : ""}`} onClick={() => setAutoAnalyze((v) => !v)}>
-              Auto analyze
-            </button>
-            <button className={`toggle ${autoSpeak ? "on" : ""}`} onClick={() => setAutoSpeak((v) => !v)}>
-              Auto speak
-            </button>
-          </div>
-
-          <div className="controls">
-            <button className="btn" onClick={() => void startCamera()}>
-              Start
-            </button>
-            <button className="btn primary" onClick={() => void analyzeCurrentFrame()}>
-              Analyze
-            </button>
-            <button className="btn" onClick={() => speak(latestReply)}>
-              Speak
-            </button>
-          </div>
-
+        <div className="replyPill">
+          <div className="replyLabel">Noa</div>
+          <div className="replyText">{escapeHtml(latestReply).slice(0, 220)}</div>
           {selectedImage ? (
             <img src={selectedImage} alt="Selected" className="preview" />
           ) : null}
-
-          {errorText ? <div className="error">{errorText}</div> : null}
         </div>
+
+        <div className="miniRow">
+          <button
+            className={`toggle ${autoAnalyze ? "on" : ""}`}
+            onClick={() => setAutoAnalyze((v) => !v)}
+          >
+            Auto analyze
+          </button>
+          <button
+            className={`toggle ${autoSpeak ? "on" : ""}`}
+            onClick={() => setAutoSpeak((v) => !v)}
+          >
+            Auto speak
+          </button>
+          <button className="toggle" onClick={() => speak(latestReply)}>
+            Speak
+          </button>
+        </div>
+
+        <div className="cameraActions">
+          <button className="actionBtn" onClick={() => void analyzeCurrentFrame()}>
+            Analyze
+          </button>
+          <button className="actionBtn" onClick={() => void sendText()}>
+            Ask
+          </button>
+        </div>
+
+        {errorText ? <div className="error">{errorText}</div> : null}
 
         <div className="bottomHint">
           <div className="hintPill">Halo HUD</div>
           <div className="hintPill">Groq vision</div>
-          <div className="hintPill">No URL tweak</div>
+          <div className="hintPill">No chat UI</div>
         </div>
       </div>
 
       <footer className="composer">
-        <button className="plus" onClick={() => fileRef.current?.click()}>⊕</button>
+        <button
+          className="plus"
+          onClick={() => fileRef.current?.click()}
+        >
+          ⊕
+        </button>
+
         <input
           ref={fileRef}
           type="file"
@@ -358,12 +368,6 @@ export default function Page() {
         </button>
       </footer>
 
-      <div className="quickRow">
-        <button className="quickChip" onClick={() => setInput("Kerro mitä näet.")}>Kerro mitä näet</button>
-        <button className="quickChip" onClick={() => setInput("Lue kaikki teksti kuvasta.")}>Lue teksti</button>
-        <button className="quickChip" onClick={() => setInput("Tiivistä tämä lyhyesti.")}>Tiivistä</button>
-      </div>
-
       <style jsx>{`
         :global(html, body) {
           margin: 0;
@@ -373,7 +377,10 @@ export default function Page() {
           overflow: hidden;
           font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
-        :global(*) { box-sizing: border-box; }
+
+        :global(*) {
+          box-sizing: border-box;
+        }
 
         .app {
           position: relative;
@@ -412,8 +419,9 @@ export default function Page() {
           display: flex;
           flex-direction: column;
           justify-content: space-between;
-          padding: calc(14px + env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom));
-          background: linear-gradient(180deg, rgba(0,0,0,.35), transparent 24%, transparent 72%, rgba(0,0,0,.56));
+          padding: calc(14px + env(safe-area-inset-top)) 14px calc(84px + env(safe-area-inset-bottom));
+          background:
+            linear-gradient(180deg, rgba(0,0,0,.35), transparent 24%, transparent 72%, rgba(0,0,0,.56));
         }
 
         .topRow {
@@ -438,15 +446,32 @@ export default function Page() {
           flex: 0 0 auto;
         }
 
-        .dot.pulse { animation: pulse 1s infinite; }
+        .dot.pulse {
+          animation: pulse 1s infinite;
+        }
+
         @keyframes pulse {
           0% { transform: scale(1); opacity: 1; }
           50% { transform: scale(1.35); opacity: .7; }
           100% { transform: scale(1); opacity: 1; }
         }
 
-        .title { font-size: 18px; font-weight: 800; line-height: 1; }
-        .sub { margin-top: 3px; font-size: 12px; color: rgba(245,247,251,.7); }
+        .title {
+          font-size: 18px;
+          font-weight: 800;
+          line-height: 1;
+        }
+
+        .sub {
+          margin-top: 3px;
+          font-size: 12px;
+          color: rgba(245,247,251,.7);
+        }
+
+        .topButtons {
+          display: flex;
+          gap: 8px;
+        }
 
         .smallBtn {
           border: 1px solid rgba(255,255,255,.12);
@@ -460,60 +485,56 @@ export default function Page() {
 
         .centerFrame {
           position: absolute;
-          inset: 14vh 10px 28vh;
+          inset: 14vh 10px 24vh;
           border: 1px solid rgba(255,255,255,.18);
           border-radius: 28px;
           pointer-events: none;
         }
 
-        .statusCard {
+        .replyPill {
           align-self: center;
           width: min(100%, 760px);
           border: 1px solid rgba(255,255,255,.12);
           background: rgba(0,0,0,.34);
-          border-radius: 26px;
+          border-radius: 22px;
           padding: 14px;
           backdrop-filter: blur(20px);
         }
 
-        .statusLine {
-          display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 10px;
-          margin-bottom: 10px;
-          font-size: 12px;
-          color: rgba(245,247,251,.74);
+        .replyLabel {
+          font-size: 11px;
+          text-transform: uppercase;
+          letter-spacing: .14em;
+          color: rgba(245,247,251,.52);
+          margin-bottom: 8px;
         }
 
-        .state { display: inline-flex; align-items: center; gap: 8px; font-weight: 700; }
-        .state.busy::before {
-          content: "";
-          width: 8px;
-          height: 8px;
-          border-radius: 50%;
-          background: #ffd86b;
-          box-shadow: 0 0 12px rgba(255,216,107,.45);
-        }
-
-        .mini { color: rgba(245,247,251,.55); }
-
-        .reply {
-          min-height: 72px;
+        .replyText {
+          min-height: 54px;
           font-size: 18px;
           line-height: 1.45;
           white-space: pre-wrap;
           color: #fff;
         }
 
-        .toggles, .controls {
+        .preview {
+          width: 100%;
+          height: 150px;
+          object-fit: cover;
+          border-radius: 16px;
+          margin-top: 12px;
+          border: 1px solid rgba(255,255,255,.10);
+        }
+
+        .miniRow {
           display: flex;
           gap: 8px;
           flex-wrap: wrap;
-          margin-top: 12px;
+          justify-content: center;
         }
 
-        .toggle, .btn, .quickChip {
+        .toggle,
+        .actionBtn {
           border: 1px solid rgba(255,255,255,.12);
           background: rgba(255,255,255,.06);
           color: #f5f7fb;
@@ -528,20 +549,20 @@ export default function Page() {
           font-weight: 800;
         }
 
-        .controls .btn { flex: 1; padding: 12px 14px; }
-        .btn.primary { background: linear-gradient(135deg, #7f73ff, #4fe3ff); color: #050608; font-weight: 900; }
+        .cameraActions {
+          display: flex;
+          gap: 10px;
+          justify-content: center;
+        }
 
-        .preview {
-          width: 100%;
-          height: 160px;
-          object-fit: cover;
-          border-radius: 18px;
-          margin-top: 12px;
-          border: 1px solid rgba(255,255,255,.10);
+        .actionBtn {
+          min-width: 110px;
+          padding: 12px 14px;
         }
 
         .error {
           margin-top: 10px;
+          text-align: center;
           color: #ff9b9b;
           font-size: 12px;
         }
@@ -568,7 +589,7 @@ export default function Page() {
           position: absolute;
           left: 14px;
           right: 14px;
-          bottom: 70px;
+          bottom: 14px;
           z-index: 3;
           display: flex;
           gap: 10px;
@@ -613,23 +634,18 @@ export default function Page() {
           font-weight: 900;
         }
 
-        .quickRow {
-          position: absolute;
-          left: 14px;
-          right: 14px;
-          bottom: 14px;
-          z-index: 3;
-          display: flex;
-          gap: 8px;
-          flex-wrap: wrap;
-          justify-content: center;
-        }
-
         @media (max-width: 420px) {
-          .reply { font-size: 16px; }
-          .controls { flex-direction: column; }
-          .centerFrame { inset: 12vh 8px 30vh; }
-          .composer { bottom: 74px; }
+          .replyText {
+            font-size: 16px;
+          }
+
+          .centerFrame {
+            inset: 12vh 8px 26vh;
+          }
+
+          .actionBtn {
+            min-width: 96px;
+          }
         }
       `}</style>
     </main>
