@@ -10,7 +10,6 @@
         --bg:#050608;
         --bg2:#0a0c11;
         --card:rgba(255,255,255,.07);
-        --card2:rgba(255,255,255,.10);
         --line:rgba(255,255,255,.10);
         --text:#f5f7fb;
         --muted:rgba(245,247,251,.68);
@@ -31,12 +30,9 @@
           radial-gradient(circle at right, rgba(79,227,255,.12), transparent 22%),
           linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
         color:var(--text);
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+        font-family:-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
       }
-
-      body{
-        min-height:100svh;
-      }
+      body{ min-height:100svh; }
 
       .app{
         min-height:100svh;
@@ -80,7 +76,6 @@
         border-radius:50%;
         background:linear-gradient(135deg, var(--accent), var(--accent2));
         box-shadow:0 0 24px rgba(127,115,255,.6);
-        flex:0 0 auto;
       }
 
       .brandText{
@@ -111,7 +106,6 @@
         background:var(--good);
         box-shadow:0 0 12px rgba(94,240,143,.5);
       }
-
       .dot.busy{
         background:var(--warn);
         box-shadow:0 0 12px rgba(255,216,107,.45);
@@ -128,8 +122,6 @@
         backdrop-filter:blur(18px);
         -webkit-backdrop-filter:blur(18px);
       }
-
-      .btn:active{ transform:translateY(1px); }
 
       .hero{
         position:relative;
@@ -188,9 +180,7 @@
         flex:0 0 auto;
       }
 
-      .switch input{
-        display:none;
-      }
+      .switch input{ display:none; }
 
       .track{
         position:absolute;
@@ -325,6 +315,15 @@
         font-size:12px;
       }
 
+      .imgPreview{
+        width:100%;
+        max-height:220px;
+        object-fit:cover;
+        border-radius:16px;
+        margin-bottom:10px;
+        border:1px solid rgba(255,255,255,.08);
+      }
+
       .typing{
         width:fit-content;
         display:inline-flex;
@@ -410,9 +409,7 @@
         line-height:1.4;
       }
 
-      .input::placeholder{
-        color:var(--muted2);
-      }
+      .input::placeholder{ color:var(--muted2); }
 
       .footerRow{
         display:flex;
@@ -424,9 +421,7 @@
         padding:0 4px;
       }
 
-      .errorTag{
-        color:#ff9b9b;
-      }
+      .errorTag{ color:#ff9b9b; }
 
       .empty{
         display:flex;
@@ -448,6 +443,49 @@
         font-size:18px;
       }
 
+      .cameraRow{
+        display:flex;
+        gap:10px;
+        align-items:center;
+      }
+
+      .cameraButton{
+        border:1px solid var(--line);
+        background:rgba(255,255,255,.06);
+        color:var(--text);
+        border-radius:16px;
+        padding:10px 12px;
+        font-size:13px;
+        display:flex;
+        align-items:center;
+        gap:8px;
+      }
+
+      .selectedImageCard{
+        display:flex;
+        align-items:center;
+        gap:12px;
+        padding:12px;
+        border-radius:20px;
+        background:rgba(255,255,255,.06);
+        border:1px solid rgba(255,255,255,.08);
+      }
+
+      .selectedImage{
+        width:54px;
+        height:54px;
+        border-radius:14px;
+        object-fit:cover;
+      }
+
+      .removeImage{
+        margin-left:auto;
+        background:transparent;
+        color:rgba(255,255,255,.8);
+        border:none;
+        font-size:13px;
+      }
+
       @media (max-width:420px){
         .headline{ font-size:22px; }
         .bubble{ max-width:88%; }
@@ -465,7 +503,6 @@
             <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Valmis</span></div>
           </div>
         </div>
-
         <button id="clearBtn" class="btn">Clear</button>
       </header>
 
@@ -474,7 +511,7 @@
           <div class="eyebrow">Noa-style assistant</div>
           <h1 class="headline">Puhu, kysy, tiivistä.</h1>
           <div class="subline">
-            Minimalistinen, nopea ja puheeseen sopiva käyttöliittymä. Vastaukset pidetään lyhyinä ja selkeinä.
+            Minimalistinen, nopea ja puheeseen sopiva käyttöliittymä. Kamera mukana. Vastaukset pidetään lyhyinä.
           </div>
         </div>
 
@@ -505,9 +542,31 @@
         <span id="errorText" class="errorTag"></span>
       </div>
 
+      <div id="selectedImageCard" class="selectedImageCard" style="display:none">
+        <img id="selectedImage" class="selectedImage" alt="Preview" />
+        <button id="removeImage" class="removeImage">Remove image</button>
+      </div>
+
       <footer class="composer">
-        <button id="plusBtn" class="plus" title="Lisää nopea kysymys">⊕</button>
-        <textarea id="input" class="input" rows="1" placeholder="Mitä kuuluu?"></textarea>
+        <div class="cameraRow">
+          <button id="cameraBtn" class="cameraButton" title="Lisää kuva">📷</button>
+        </div>
+
+        <input
+          id="imageInput"
+          type="file"
+          accept="image/*"
+          capture="environment"
+          hidden
+        />
+
+        <textarea
+          id="input"
+          class="input"
+          rows="1"
+          placeholder="Mitä kuuluu?"
+        ></textarea>
+
         <button id="sendBtn" class="send">→</button>
       </footer>
     </main>
@@ -516,7 +575,8 @@
       const chatEl = document.getElementById("chat");
       const inputEl = document.getElementById("input");
       const sendBtn = document.getElementById("sendBtn");
-      const plusBtn = document.getElementById("plusBtn");
+      const cameraBtn = document.getElementById("cameraBtn");
+      const imageInput = document.getElementById("imageInput");
       const clearBtn = document.getElementById("clearBtn");
       const autoSpeakEl = document.getElementById("autoSpeak");
       const typingEl = document.getElementById("typing");
@@ -524,16 +584,18 @@
       const statusText = document.getElementById("statusText");
       const countText = document.getElementById("countText");
       const errorText = document.getElementById("errorText");
+      const selectedImageCard = document.getElementById("selectedImageCard");
+      const selectedImage = document.getElementById("selectedImage");
+      const removeImage = document.getElementById("removeImage");
 
       const STORAGE_KEY = "halo_ai_chat_v1";
       const MAX_HISTORY = 12;
 
       let messages = loadMessages();
+      let imageBase64 = "";
 
       function defaultMessages() {
-        return [
-          { role: "assistant", text: "Hei. Kysy jotain tai kirjoita kuvaus." }
-        ];
+        return [{ role: "assistant", text: "Hei. Kysy jotain tai ota kuva." }];
       }
 
       function loadMessages() {
@@ -557,6 +619,7 @@
         statusDot.classList.toggle("busy", isBusy);
         statusText.textContent = label || (isBusy ? "Ajattelee…" : "Valmis");
         sendBtn.disabled = isBusy;
+        cameraBtn.disabled = isBusy;
       }
 
       function scrollToBottom() {
@@ -617,6 +680,14 @@
           const bubble = document.createElement("div");
           bubble.className = `bubble ${isUser ? "user" : "assistant"}`;
 
+          if (isUser && m.imageBase64) {
+            const img = document.createElement("img");
+            img.className = "imgPreview";
+            img.src = m.imageBase64;
+            img.alt = "Preview";
+            bubble.appendChild(img);
+          }
+
           const text = document.createElement("div");
           text.className = "text";
           text.innerHTML = escapeHtml(m.text).replace(/\n/g, "<br>");
@@ -660,21 +731,36 @@
 
       async function sendMessage(customText) {
         const text = String(customText ?? inputEl.value).trim();
-        if (!text) return;
+        if (!text && !imageBase64) return;
 
         errorText.textContent = "";
-        messages.push({ role: "user", text });
+
+        const userMsg = {
+          role: "user",
+          text: text || "Mitä kuvassa näkyy?",
+          imageBase64: imageBase64 || "",
+        };
+
+        messages.push(userMsg);
         render();
         saveMessages();
         inputEl.value = "";
         autoGrow();
         scrollToBottom();
 
-        setBusy(true, "Ajattelee…");
+        const sendingImage = !!imageBase64;
+        imageBase64 = "";
+        selectedImageCard.style.display = "none";
+        selectedImage.src = "";
+
+        setBusy(true, sendingImage ? "Analysoi kuvaa…" : "Ajattelee…");
 
         const history = messages
           .slice(-MAX_HISTORY)
-          .map((m) => ({ role: m.role, content: m.text }));
+          .map((m) => ({
+            role: m.role,
+            content: m.text,
+          }));
 
         try {
           const res = await fetch("/api/chat", {
@@ -682,7 +768,8 @@
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
               message: text,
-              history
+              imageBase64: userMsg.imageBase64,
+              history,
             }),
           });
 
@@ -726,10 +813,29 @@
       });
 
       sendBtn.addEventListener("click", () => sendMessage());
-      plusBtn.addEventListener("click", () => {
-        inputEl.value = "Kerro mitä näet.";
-        autoGrow();
-        inputEl.focus();
+      cameraBtn.addEventListener("click", () => imageInput.click());
+
+      imageInput.addEventListener("change", async (e) => {
+        const file = e.target.files && e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = () => {
+          imageBase64 = String(reader.result || "");
+          selectedImage.src = imageBase64;
+          selectedImageCard.style.display = "flex";
+          inputEl.value = inputEl.value.trim() || "Kerro mitä näet.";
+          autoGrow();
+          inputEl.focus();
+        };
+        reader.readAsDataURL(file);
+        imageInput.value = "";
+      });
+
+      removeImage.addEventListener("click", () => {
+        imageBase64 = "";
+        selectedImageCard.style.display = "none";
+        selectedImage.src = "";
       });
 
       clearBtn.addEventListener("click", () => {
@@ -738,6 +844,9 @@
         render();
         errorText.textContent = "";
         statusText.textContent = "Valmis";
+        imageBase64 = "";
+        selectedImageCard.style.display = "none";
+        selectedImage.src = "";
       });
 
       document.querySelectorAll("[data-prompt]").forEach((btn) => {
