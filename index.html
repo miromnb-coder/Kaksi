@@ -1,8 +1,34 @@
-const data = await res.json();
+<!DOCTYPE html>
+<html>
+<body>
 
-if (data.error) {
-  document.getElementById("output").innerText =
-    "ERROR: " + JSON.stringify(data.error);
-} else {
-  document.getElementById("output").innerText = data.reply;
+<input id="input" placeholder="Kysy jotain..." />
+<button onclick="send()">→</button>
+
+<div id="output"></div>
+
+<script>
+async function send() {
+  const message = document.getElementById("input").value;
+
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({ message })
+  });
+
+  const data = await res.json();
+
+  if (data.error) {
+    document.getElementById("output").innerText =
+      "ERROR: " + JSON.stringify(data.error);
+  } else {
+    document.getElementById("output").innerText = data.reply;
+  }
 }
+</script>
+
+</body>
+</html>
