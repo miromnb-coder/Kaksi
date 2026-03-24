@@ -2,29 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 
-const STORAGE_KEY = "halo_clone_messages_v1";
-const MAX_HISTORY = 10;
-const AUTO_ANALYZE_MS = 9000;
-
-function defaultMessages() {
-  return [{ role: "assistant", text: "Hei. Kysy jotain tai ota kuva." }];
-}
-
-function getInitialMessages() {
-  if (typeof window === "undefined") return defaultMessages();
-
-  try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return defaultMessages();
-
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed) || !parsed.length) return defaultMessages();
-
-    return parsed;
-  } catch {
-    return defaultMessages();
-  }
-}
+const STORAGE_KEY = "halo_clone_hud_v1";
+const ANALYZE_INTERVAL_MS = 4500;
+const WAKE_WORDS = ["hei noa", "hey noa", "noa"];
 
 function speak(text) {
   if (typeof window === "undefined") return;
@@ -51,151 +31,69 @@ function escapeHtml(str) {
 }
 
 export default function Page() {
-  const [messages, setMessages] = useState(getInitialMessages);
-  const [input, setInput] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [autoSpeak, setAutoSpeak] = useState(true);
-  const [autoAnalyze, setAutoAnalyze] = useState(true);
-  const [facingMode, setFacingMode] = useState("environment");
-  const [cameraReady, setCameraReady] = useState(false);
-  const [cameraStatus, setCameraStatus] = useState("Ei käynnissä");
-  const [errorText, setErrorText] = useState("");
-  const [selectedImage, setSelectedImage] = useState("");
-  const [listening, setListening] = useState(false);
-  const [voiceStatus, setVoiceStatus] = useState("Puhe pois");
-
-  const messagesRef = useRef(messages);
-  const draftRef = useRef("");
   const videoRef = useRef(null);
   const streamRef = useRef(null);
   const recognitionRef = useRef(null);
-  const fileRef = useRef(null);
-  const endRef = useRef(null);
-  const analyzingRef = useRef(false);
+  const analyzeLockRef = useRef(false);
+  const lastAutoAnalyzeRef = useRef(0);
+  const lastWakeHitRef = useRef(0);
+
+  const [cameraReady, setCameraReady] = useState(false);
+  const [cameraStatus, setCameraStatus] = useState("Ei käynnissä");
+  const [loading, setLoading] = useState(false);
+  const [autoAnalyze, setAutoAnalyze] = useState(true);
+  const [autoSpeak, setAutoSpeak] = useState(true);
+  const [wakeWord, setWakeWord] = useState(true);
+  const [facingMode, setFacingMode] = useState("environment");
+  const [lastReply, setLastReply] = useState("Valmis.");
+  const [lastAction, setLastAction] = useState("Odottaa");
+  const [errorText, setErrorText] = useState("");
+  const [pulse, setPulse] = useState(false);
 
   useEffect(() => {
-    messagesRef.current = messages;
-
-    if (typeof window !== "undefined") {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
-    }
-  }, [messages]);
-
-  useEffect(() => {
-    draftRef.current = input;
-  }, [input]);
-
-  useEffect(() => {
-    if (endRef.current) {
-      endRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  }, [messages, loading]);
-
-  useEffect(() => {
-    const tryStart = async () => {
-      if (typeof navigator === "undefined") return;
-      if (!navigator.mediaDevices?.getUserMedia) {
-        setCameraStatus("Kameraa ei tueta");
-        return;
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (typeof parsed.autoAnalyze === "boolean") setAutoAnalyze(parsed.autoAnalyze);
+        if (typeof parsed.autoSpeak === "boolean") setAutoSpeak(parsed.autoSpeak);
+        if (typeof parsed.wakeWord === "boolean") setWakeWord(parsed.wakeWord);
       }
+    } catch {}
+  }, []);
 
-      try {
-        if (streamRef.current) {
-          streamRef.current.getTracks().forEach((t) => t.stop());
-        }
+  useEffect(() => {
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({ autoAnalyze, autoSpeak, wakeWord })
+    );
+  }, [autoAnalyze, autoSpeak, wakeWord]);
 
-        const stream = await navigator.mediaDevices.getUserMedia({
-          video: { facingMode: { ideal: facingMode } },
-          audio: false,
-        });
-
-        streamRef.current = stream;
-
-        if (videoRef.current) {
-          videoRef.current.srcObject = stream;
-        }
-
-        setCameraReady(true);
-        setCameraStatus(facingMode === "environment" ? "Takakamera valmis" : "Etukamera valmis");
-      } catch {
-        setCameraReady(false);
-        setCameraStatus("Kameralupa puuttuu");
-      }
-    };
-
-    void tryStart();
-
-    return () => {
+  async function startCamera(mode = facingMode) {
+    try {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((t) => t.stop());
-        streamRef.current = null;
       }
-    };
-  }, [facingMode]);
 
-  useEffect(() => {
-    if (!autoAnalyze || !cameraReady) return;
-
-    const id = setInterval(() => {
-      if (loading || analyzingRef.current) return;
-      if (draftRef.current.trim()) return;
-
-      const frame = captureFrame();
-      if (!frame) return;
-
-      void sendMessage("Kerro mitä näet kuvassa lyhyesti.", frame, {
-        fromAutoAnalyze: true,
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: { ideal: mode } },
+        audio: false,
       });
-    }, AUTO_ANALYZE_MS);
 
-    return () => clearInterval(id);
-  }, [autoAnalyze, cameraReady, loading]);
+      streamRef.current = stream;
 
-  function renderMessages() {
-    return messages.map((m, i) => {
-      const isUser = m.role === "user";
+      if (videoRef.current) {
+        videoRef.current.srcObject = stream;
+      }
 
-      return (
-        <div key={`${m.role}-${i}`} className={`row ${isUser ? "user" : "assistant"}`}>
-          {!isUser ? <div className="avatar assistant">N</div> : null}
-
-          <div className={`bubble ${isUser ? "user" : "assistant"}`}>
-            {isUser && m.imageBase64 ? (
-              <img className="imgPreview" src={m.imageBase64} alt="Preview" />
-            ) : null}
-
-            <div className="text" dangerouslySetInnerHTML={{ __html: escapeHtml(m.text).replace(/\n/g, "<br>") }} />
-
-            {!isUser ? (
-              <div className="actions">
-                <button
-                  className="mini"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(m.text);
-                    } catch {}
-                  }}
-                >
-                  Copy
-                </button>
-                <button className="mini" onClick={() => speak(m.text)}>
-                  Speak
-                </button>
-              </div>
-            ) : null}
-          </div>
-
-          {isUser ? <div className="avatar user">M</div> : null}
-        </div>
-      );
-    });
-  }
-
-  function autoGrow() {
-    const el = document.getElementById("input");
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 140)}px`;
+      setCameraReady(true);
+      setCameraStatus(mode === "environment" ? "Takakamera valmis" : "Etukamera valmis");
+      setErrorText("");
+    } catch {
+      setCameraReady(false);
+      setCameraStatus("Kameralupa puuttuu");
+      setErrorText("Salli kameran käyttö");
+    }
   }
 
   function captureFrame() {
@@ -215,48 +113,28 @@ export default function Page() {
     return canvas.toDataURL("image/jpeg", 0.82);
   }
 
-  async function sendMessage(customText = "", imageBase64 = "", options = {}) {
-    if (loading || analyzingRef.current) return;
+  async function analyzeFrame(promptText = "Kerro mitä näet kuvassa lyhyesti.") {
+    if (!cameraReady || analyzeLockRef.current) return;
 
-    const text = String(customText || input).trim();
-    const img = String(imageBase64 || selectedImage || "").trim();
+    const imageBase64 = captureFrame();
+    if (!imageBase64) return;
 
-    if (!text && !img) return;
-
-    analyzingRef.current = true;
+    analyzeLockRef.current = true;
     setLoading(true);
+    setPulse(true);
+    setLastAction("Analysoi…");
     setErrorText("");
-
-    const userMsg = {
-      role: "user",
-      text: text || "Kerro mitä näet kuvassa lyhyesti.",
-      imageBase64: img,
-    };
-
-    const nextMessages = [...messagesRef.current, userMsg];
-    messagesRef.current = nextMessages;
-    setMessages(nextMessages);
-
-    setInput("");
-    if (!options.keepSelectedImage) {
-      setSelectedImage("");
-    }
-
-    const history = nextMessages
-      .slice(-MAX_HISTORY)
-      .map((m) => ({
-        role: m.role,
-        content: m.text,
-      }));
 
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          message: userMsg.text,
-          imageBase64: userMsg.imageBase64,
-          history,
+          message: promptText,
+          imageBase64,
+          history: [
+            { role: "user", content: promptText },
+          ],
         }),
       });
 
@@ -264,391 +142,195 @@ export default function Page() {
 
       if (!res.ok || data.error) {
         const err = data.error ? JSON.stringify(data.error) : `HTTP ${res.status}`;
-        const errorMsg = `ERROR: ${err}`;
-        const withError = [...nextMessages, { role: "assistant", text: errorMsg }];
-        messagesRef.current = withError;
-        setMessages(withError);
+        setLastReply(`ERROR: ${err}`);
         setErrorText("Backend-virhe");
       } else {
         const reply = data.reply || "Ei vastausta.";
-        const withReply = [...nextMessages, { role: "assistant", text: reply }];
-        messagesRef.current = withReply;
-        setMessages(withReply);
-
+        setLastReply(reply);
         if (autoSpeak) speak(reply);
       }
     } catch (err) {
-      const errorMsg = `ERROR: ${err.message || String(err)}`;
-      const withError = [...nextMessages, { role: "assistant", text: errorMsg }];
-      messagesRef.current = withError;
-      setMessages(withError);
+      setLastReply(`ERROR: ${err.message || String(err)}`);
       setErrorText("Verkkovirhe");
     } finally {
       setLoading(false);
-      analyzingRef.current = false;
+      setPulse(false);
+      setLastAction("Valmis");
+      analyzeLockRef.current = false;
     }
   }
 
-  async function startVoice() {
-    if (listening) {
-      if (recognitionRef.current) recognitionRef.current.stop();
-      return;
-    }
+  useEffect(() => {
+    void startCamera(facingMode);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [facingMode]);
+
+  useEffect(() => {
+    if (!autoAnalyze || !cameraReady) return;
+
+    const id = setInterval(() => {
+      const now = Date.now();
+      if (now - lastAutoAnalyzeRef.current < ANALYZE_INTERVAL_MS) return;
+      if (loading || analyzeLockRef.current) return;
+
+      lastAutoAnalyzeRef.current = now;
+      void analyzeFrame("Kerro mitä näet kuvassa lyhyesti.");
+    }, ANALYZE_INTERVAL_MS);
+
+    return () => clearInterval(id);
+  }, [autoAnalyze, cameraReady, loading]);
+
+  useEffect(() => {
+    if (!wakeWord || typeof window === "undefined") return;
 
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechRecognition) {
-      setErrorText("Puhe ei ole tuettu tässä selaimessa");
+      setErrorText("Puheentunnistus ei ole tuettu tässä selaimessa");
       return;
     }
 
     const recognition = new SpeechRecognition();
     recognitionRef.current = recognition;
     recognition.lang = "fi-FI";
+    recognition.continuous = true;
     recognition.interimResults = true;
-    recognition.continuous = false;
 
-    let finalText = "";
-
-    recognition.onstart = () => {
-      setListening(true);
-      setVoiceStatus("Kuuntelee…");
-      setErrorText("");
-    };
+    let finalChunk = "";
 
     recognition.onresult = (event) => {
-      let interim = "";
+      let full = "";
       for (let i = event.resultIndex; i < event.results.length; i++) {
-        const transcript = event.results[i][0].transcript;
-        if (event.results[i].isFinal) {
-          finalText += transcript;
-        } else {
-          interim += transcript;
-        }
+        full += event.results[i][0].transcript + " ";
       }
 
-      const visible = `${finalText} ${interim}`.trim();
-      setInput(visible);
-      draftRef.current = visible;
-      autoGrow();
-    };
+      const transcript = full.trim().toLowerCase();
+      if (!transcript) return;
 
-    recognition.onerror = () => {
-      setListening(false);
-      setVoiceStatus("Puhe pois");
-      setErrorText("Puhevirhe");
-    };
+      const now = Date.now();
+      if (now - lastWakeHitRef.current < 5000) return;
 
-    recognition.onend = () => {
-      setListening(false);
-      setVoiceStatus("Puhe pois");
-
-      const spoken = finalText.trim();
-      if (spoken) {
-        void sendMessage(spoken);
-      }
-    };
-
-    recognition.start();
-  }
-
-  async function startCamera(mode = facingMode) {
-    try {
-      if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
-        setCameraStatus("Kameraa ei tueta");
-        setCameraReady(false);
+      const hasWake = WAKE_WORDS.some((w) => transcript.includes(w));
+      if (!hasWake) {
+        finalChunk = transcript;
         return;
       }
 
-      if (streamRef.current) {
-        streamRef.current.getTracks().forEach((t) => t.stop());
+      lastWakeHitRef.current = now;
+      setPulse(true);
+      setLastAction("Herätys");
+      speak("Kuuntelen.");
+
+      const cleaned = transcript
+        .replace("hei noa", "")
+        .replace("hey noa", "")
+        .replace("noa", "")
+        .trim();
+
+      if (cleaned.length > 0) {
+        void analyzeFrame(cleaned);
+      } else {
+        void analyzeFrame("Kerro mitä näet kuvassa lyhyesti.");
       }
 
-      const stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: mode } },
-        audio: false,
-      });
+      finalChunk = "";
+    };
 
-      streamRef.current = stream;
+    recognition.onerror = () => {
+      setErrorText("Puheherätys ei käynnistynyt");
+    };
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
+    try {
+      recognition.start();
+      setLastAction("Wake word päällä");
+    } catch {}
 
-      setCameraReady(true);
-      setCameraStatus(mode === "environment" ? "Takakamera valmis" : "Etukamera valmis");
-    } catch {
-      setCameraReady(false);
-      setCameraStatus("Kameralupa puuttuu");
-    }
-  }
+    return () => {
+      try {
+        recognition.stop();
+      } catch {}
+    };
+  }, [wakeWord, autoSpeak, cameraReady]);
 
-  function captureAndPreview() {
-    const frame = captureFrame();
-    if (!frame) {
-      setErrorText("Kamera ei ole valmis");
-      return;
-    }
-    setSelectedImage(frame);
-  }
+  const overlayText = lastReply.length > 160 ? `${lastReply.slice(0, 160)}…` : lastReply;
 
   return (
     <main className="app">
-      <div className="glow" />
+      <div className="bgGlow" />
 
-      <header className="topbar">
-        <div className="brand">
-          <div className="logo" />
-          <div className="brandText">
-            <div className="brandTitle">Halo AI</div>
-            <div className="status">
-              <span className={`dot ${loading ? "busy" : ""}`} />
-              <span>{loading ? "Ajattelee…" : "Valmis"}</span>
+      <video ref={videoRef} className="video" autoPlay playsInline muted />
+
+      <div className="overlay">
+        <div className="topRow">
+          <div className="brand">
+            <div className={`dot ${pulse ? "pulse" : ""}`} />
+            <div>
+              <div className="title">Noa HUD</div>
+              <div className="sub">{cameraStatus}</div>
             </div>
           </div>
-        </div>
 
-        <button
-          className="btn"
-          onClick={() => {
-            messagesRef.current = defaultMessages();
-            setMessages(defaultMessages());
-            setInput("");
-            setSelectedImage("");
-            setErrorText("");
-            setCameraStatus(cameraReady ? cameraStatus : "Ei käynnissä");
-          }}
-        >
-          Clear
-        </button>
-      </header>
-
-      <section className="hero">
-        <div>
-          <div className="eyebrow">Noa clone mode</div>
-          <h1 className="headline">Puhu, kuvaa, näe.</h1>
-          <div className="subline">
-            Minimalistinen HUD, live kamera, automaattinen analyysi ja puhe takaisin.
-          </div>
-        </div>
-
-        <label className="switchWrap" title="Auto speak">
-          <span>Auto speak</span>
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={autoSpeak}
-              onChange={(e) => setAutoSpeak(e.target.checked)}
-            />
-            <span className="track">
-              <span className="thumb" />
-            </span>
-          </label>
-        </label>
-      </section>
-
-      <section className="hero" style={{ padding: "14px 16px" }}>
-        <div className="switchWrap" style={{ marginTop: 0 }}>
-          <span>Auto analyze</span>
-          <label className="switch">
-            <input
-              type="checkbox"
-              checked={autoAnalyze}
-              onChange={(e) => setAutoAnalyze(e.target.checked)}
-            />
-            <span className="track">
-              <span className="thumb" />
-            </span>
-          </label>
-        </div>
-
-        <div className="switchWrap" style={{ marginTop: 0 }}>
-          <span>Puhe</span>
-          <span style={{ color: listening ? "white" : "rgba(245,247,251,.55)" }}>
-            {voiceStatus}
-          </span>
-        </div>
-      </section>
-
-      <section className="cameraShell">
-        <video ref={videoRef} className="cameraVideo" autoPlay playsInline muted />
-        <div className="cameraOverlay" />
-        <div className="cameraFrame" />
-
-        <div className="cameraHud">
-          <div className="hudPill">
-            <span className="hudDot" />
-            <span>
-              <div style={{ fontWeight: 700, lineHeight: 1 }}>Live camera</div>
-              <div className="hudMini">{cameraStatus}</div>
-            </span>
-          </div>
-
-          <div className="hudPill">
-            <span>
-              <div style={{ fontWeight: 700, lineHeight: 1 }}>Halo HUD</div>
-              <div className="hudMini">capture + analyze</div>
-            </span>
-          </div>
-        </div>
-
-        <div className="cameraControls">
           <button
-            className="glassBtn"
-            onClick={() => startCamera(facingMode)}
-          >
-            Start
-          </button>
-          <button
-            className="glassBtn"
-            onClick={async () => {
-              const next = facingMode === "environment" ? "user" : "environment";
-              setFacingMode(next);
-              await startCamera(next);
+            className="smallBtn"
+            onClick={() => {
+              setFacingMode((m) => (m === "environment" ? "user" : "environment"));
             }}
           >
             Flip
           </button>
-          <button
-            className="glassBtn primary"
-            onClick={() => {
-              const frame = captureFrame();
-              if (!frame) {
-                setErrorText("Kameraa ei löytynyt");
-                return;
-              }
-              void sendMessage("Kerro mitä näet kuvassa lyhyesti.", frame);
-            }}
-          >
-            Analyze
-          </button>
         </div>
-      </section>
 
-      <section className="chips" aria-label="Quick prompts">
-        <button className="chip" onClick={() => void sendMessage("Kerro mitä näet.")}>
-          Kerro mitä näet
-        </button>
-        <button className="chip" onClick={() => void sendMessage("Tiivistä tämä lyhyesti.")}>
-          Tiivistä
-        </button>
-        <button className="chip" onClick={() => void sendMessage("Lue kaikki teksti kuvasta.")}>
-          Lue teksti
-        </button>
-        <button className="chip" onClick={() => void sendMessage("Mikä on tärkein asia tästä?")}>
-          Tärkein asia
-        </button>
-      </section>
+        <div className="centerFrame" />
 
-      {selectedImage ? (
-        <section className="selectedImageCard">
-          <img className="selectedImage" src={selectedImage} alt="Selected" />
-          <button className="removeImage" onClick={() => setSelectedImage("")}>
-            Remove image
-          </button>
-        </section>
-      ) : null}
-
-      <section className="chat" aria-live="polite">
-        {messages.length ? (
-          renderMessages()
-        ) : (
-          <div className="empty">
-            <strong>Valmis.</strong>
-            Aloita kirjoittamalla viesti.
+        <div className="statusCard">
+          <div className="statusLine">
+            <span className={`state ${loading ? "busy" : ""}`}>{lastAction}</span>
+            <span className="mini">camera {cameraReady ? "ready" : "off"}</span>
           </div>
-        )}
 
-        {loading ? (
-          <div className="typing">
-            <span />
-            <span />
-            <span />
+          <div className="reply">{escapeHtml(overlayText)}</div>
+
+          <div className="toggles">
+            <button className={`toggle ${autoAnalyze ? "on" : ""}`} onClick={() => setAutoAnalyze(v => !v)}>
+              Auto analyze
+            </button>
+            <button className={`toggle ${autoSpeak ? "on" : ""}`} onClick={() => setAutoSpeak(v => !v)}>
+              Auto speak
+            </button>
+            <button className={`toggle ${wakeWord ? "on" : ""}`} onClick={() => setWakeWord(v => !v)}>
+              Wake word
+            </button>
           </div>
-        ) : null}
 
-        <div ref={endRef} />
-      </section>
+          <div className="controls">
+            <button className="btn" onClick={() => void startCamera(facingMode)}>
+              Start
+            </button>
+            <button className="btn primary" onClick={() => void analyzeFrame()}>
+              Analyze now
+            </button>
+            <button className="btn" onClick={() => speak(lastReply)}>
+              Speak
+            </button>
+          </div>
 
-      <div className="footerRow">
-        <span>{messages.length} viestiä</span>
-        <span className="errorTag">{errorText}</span>
+          {errorText ? <div className="error">{errorText}</div> : null}
+        </div>
+
+        <div className="bottomHint">
+          <div className="hintPill">Hei Noa</div>
+          <div className="hintPill">Auto vision</div>
+          <div className="hintPill">AR overlay</div>
+        </div>
       </div>
-
-      <footer className="composer">
-        <button
-          className="plus"
-          onClick={() => {
-            fileRef.current?.click();
-          }}
-          title="Lisää kuva"
-        >
-          ⊕
-        </button>
-
-        <button
-          className="plus"
-          onClick={() => void startVoice()}
-          title="Puhu"
-        >
-          🎤
-        </button>
-
-        <input
-          ref={fileRef}
-          type="file"
-          accept="image/*"
-          capture="environment"
-          hidden
-          onChange={async (e) => {
-            const file = e.target.files?.[0];
-            if (!file) return;
-
-            const reader = new FileReader();
-            reader.onload = () => {
-              const dataUrl = String(reader.result || "");
-              setSelectedImage(dataUrl);
-              setInput((v) => v || "Kerro mitä näet.");
-            };
-            reader.readAsDataURL(file);
-            e.target.value = "";
-          }}
-        />
-
-        <textarea
-          id="input"
-          className="input"
-          rows={1}
-          placeholder="Mitä kuuluu?"
-          value={input}
-          onChange={(e) => {
-            setInput(e.target.value);
-            draftRef.current = e.target.value;
-          }}
-          onInput={() => autoGrow()}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              void sendMessage();
-            }
-          }}
-        />
-
-        <button className="send" onClick={() => void sendMessage()} disabled={loading}>
-          →
-        </button>
-      </footer>
 
       <style jsx>{`
         :global(html, body) {
           margin: 0;
-          min-height: 100%;
-          background:
-            radial-gradient(circle at top, rgba(127, 115, 255, 0.22), transparent 28%),
-            radial-gradient(circle at right, rgba(79, 227, 255, 0.14), transparent 22%),
-            linear-gradient(180deg, #050608 0%, #0b0d12 100%);
-          color: #f5f7fb;
-          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial,
-            sans-serif;
+          width: 100%;
+          height: 100%;
+          background: #050608;
+          overflow: hidden;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
         }
 
         :global(*) {
@@ -656,31 +338,51 @@ export default function Page() {
         }
 
         .app {
-          min-height: 100svh;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          padding: 16px 14px calc(14px + env(safe-area-inset-bottom));
           position: relative;
+          width: 100vw;
+          height: 100svh;
+          background: #050608;
+          color: #f5f7fb;
           overflow: hidden;
         }
 
-        .glow {
-          position: fixed;
+        .bgGlow {
+          position: absolute;
           inset: -20% auto auto 50%;
-          width: 80vw;
-          height: 80vw;
+          width: 90vw;
+          height: 90vw;
           transform: translateX(-50%);
+          background: radial-gradient(circle, rgba(127,115,255,0.18), transparent 60%);
+          filter: blur(24px);
           pointer-events: none;
-          background: radial-gradient(circle, rgba(127, 115, 255, 0.18), transparent 60%);
-          filter: blur(30px);
         }
 
-        .topbar {
+        .video {
+          position: absolute;
+          inset: 0;
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+          background: #000;
+        }
+
+        .overlay {
           position: relative;
-          z-index: 1;
+          z-index: 2;
+          width: 100%;
+          height: 100%;
           display: flex;
-          align-items: center;
+          flex-direction: column;
+          justify-content: space-between;
+          padding: calc(14px + env(safe-area-inset-top)) 14px calc(14px + env(safe-area-inset-bottom));
+          background:
+            linear-gradient(180deg, rgba(0,0,0,.36), transparent 24%, transparent 72%, rgba(0,0,0,.55)),
+            radial-gradient(circle at top, rgba(127,115,255,.08), transparent 40%);
+        }
+
+        .topRow {
+          display: flex;
+          align-items: flex-start;
           justify-content: space-between;
           gap: 12px;
         }
@@ -688,532 +390,185 @@ export default function Page() {
         .brand {
           display: flex;
           align-items: center;
-          gap: 12px;
-        }
-
-        .logo {
-          width: 14px;
-          height: 14px;
-          border-radius: 50%;
-          background: linear-gradient(135deg, #7f73ff, #4fe3ff);
-          box-shadow: 0 0 24px rgba(127, 115, 255, 0.6);
-        }
-
-        .brandText {
-          display: flex;
-          flex-direction: column;
-          gap: 3px;
-        }
-
-        .brandTitle {
-          font-weight: 800;
-          font-size: 18px;
-          letter-spacing: 0.2px;
-          line-height: 1;
-        }
-
-        .status {
-          display: flex;
-          align-items: center;
-          gap: 6px;
-          font-size: 12px;
-          color: rgba(245, 247, 251, 0.7);
+          gap: 10px;
         }
 
         .dot {
-          width: 7px;
-          height: 7px;
+          width: 12px;
+          height: 12px;
           border-radius: 50%;
-          background: #5ef08f;
-          box-shadow: 0 0 12px rgba(94, 240, 143, 0.45);
+          background: linear-gradient(135deg, #7f73ff, #4fe3ff);
+          box-shadow: 0 0 18px rgba(127,115,255,.6);
+          flex: 0 0 auto;
         }
 
-        .dot.busy {
-          background: #ffd86b;
-          box-shadow: 0 0 12px rgba(255, 216, 107, 0.45);
+        .dot.pulse {
+          animation: pulse 1s infinite;
         }
 
-        .btn {
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          background: rgba(255, 255, 255, 0.06);
+        @keyframes pulse {
+          0% { transform: scale(1); opacity: 1; }
+          50% { transform: scale(1.35); opacity: .7; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+
+        .title {
+          font-size: 18px;
+          font-weight: 800;
+          line-height: 1;
+        }
+
+        .sub {
+          margin-top: 3px;
+          font-size: 12px;
+          color: rgba(245,247,251,.7);
+        }
+
+        .smallBtn {
+          border: 1px solid rgba(255,255,255,.12);
+          background: rgba(0,0,0,.28);
           color: #f5f7fb;
           border-radius: 999px;
           padding: 10px 14px;
           font-size: 13px;
-          font-weight: 600;
-          backdrop-filter: blur(18px);
-          -webkit-backdrop-filter: blur(18px);
-        }
-
-        .hero {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 14px;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          background: linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.05));
-          border-radius: 28px;
-          padding: 18px;
-          box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
-          backdrop-filter: blur(22px);
-          -webkit-backdrop-filter: blur(22px);
-        }
-
-        .eyebrow {
-          font-size: 11px;
-          color: rgba(245, 247, 251, 0.48);
-          letter-spacing: 0.16em;
-          text-transform: uppercase;
-          margin-bottom: 10px;
-        }
-
-        .headline {
-          font-size: 24px;
-          line-height: 1.05;
-          font-weight: 900;
-          letter-spacing: -0.02em;
-          margin: 0 0 10px;
-        }
-
-        .subline {
-          color: rgba(245, 247, 251, 0.7);
-          font-size: 14px;
-          line-height: 1.45;
-          max-width: 280px;
-        }
-
-        .switchWrap {
-          display: flex;
-          align-items: center;
-          gap: 10px;
-          user-select: none;
-          font-size: 13px;
-          color: rgba(245, 247, 251, 0.68);
-          white-space: nowrap;
-          margin-top: 2px;
-        }
-
-        .switch {
-          position: relative;
-          width: 48px;
-          height: 28px;
-          flex: 0 0 auto;
-        }
-
-        .switch input {
-          display: none;
-        }
-
-        .track {
-          position: absolute;
-          inset: 0;
-          border-radius: 999px;
-          background: rgba(255, 255, 255, 0.16);
-          transition: 0.2s ease;
-        }
-
-        .thumb {
-          position: absolute;
-          width: 22px;
-          height: 22px;
-          top: 3px;
-          left: 3px;
-          border-radius: 50%;
-          background: #fff;
-          transition: 0.2s ease;
-        }
-
-        .switch input:checked + .track {
-          background: linear-gradient(135deg, #7f73ff, #4fe3ff);
-        }
-
-        .switch input:checked + .track .thumb {
-          transform: translateX(20px);
-        }
-
-        .cameraShell {
-          position: relative;
-          z-index: 1;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          background: rgba(255, 255, 255, 0.06);
-          border-radius: 30px;
-          overflow: hidden;
-          min-height: 320px;
-          box-shadow: 0 18px 50px rgba(0, 0, 0, 0.28);
-          backdrop-filter: blur(18px);
-          -webkit-backdrop-filter: blur(18px);
-        }
-
-        .cameraVideo {
-          width: 100%;
-          height: 100%;
-          min-height: 320px;
-          object-fit: cover;
-          display: block;
-          background: #000;
-        }
-
-        .cameraOverlay {
-          position: absolute;
-          inset: 0;
-          pointer-events: none;
-          background:
-            linear-gradient(transparent 0 46%, rgba(127, 115, 255, 0.13) 47%, transparent 48%),
-            linear-gradient(90deg, transparent 0 46%, rgba(79, 227, 255, 0.1) 47%, transparent 48%);
-        }
-
-        .cameraFrame {
-          position: absolute;
-          inset: 16px;
-          border-radius: 22px;
-          border: 1px solid rgba(255, 255, 255, 0.16);
-          box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
-        }
-
-        .cameraHud {
-          position: absolute;
-          top: 14px;
-          left: 14px;
-          right: 14px;
-          display: flex;
-          align-items: flex-start;
-          justify-content: space-between;
-          gap: 10px;
-          pointer-events: none;
-        }
-
-        .hudPill {
-          pointer-events: none;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          background: rgba(0, 0, 0, 0.24);
           backdrop-filter: blur(16px);
           -webkit-backdrop-filter: blur(16px);
-          padding: 10px 12px;
-          border-radius: 16px;
-          font-size: 12px;
-          color: #f5f7fb;
+        }
+
+        .centerFrame {
+          position: absolute;
+          inset: 14vh 10px 28vh;
+          border: 1px solid rgba(255,255,255,.18);
+          border-radius: 28px;
+          box-shadow: inset 0 0 0 1px rgba(255,255,255,.05);
+          pointer-events: none;
+        }
+
+        .statusCard {
+          align-self: center;
+          width: min(100%, 760px);
+          border: 1px solid rgba(255,255,255,.12);
+          background: rgba(0,0,0,.34);
+          border-radius: 26px;
+          padding: 14px;
+          backdrop-filter: blur(20px);
+          -webkit-backdrop-filter: blur(20px);
+          box-shadow: 0 18px 50px rgba(0,0,0,.28);
+        }
+
+        .statusLine {
           display: flex;
           align-items: center;
+          justify-content: space-between;
+          gap: 10px;
+          margin-bottom: 10px;
+          font-size: 12px;
+          color: rgba(245,247,251,.74);
+        }
+
+        .state {
+          display: inline-flex;
+          align-items: center;
           gap: 8px;
+          font-weight: 700;
         }
 
-        .hudMini {
-          color: rgba(245, 247, 251, 0.7);
-          font-size: 11px;
-        }
-
-        .hudDot {
+        .state.busy::before {
+          content: "";
           width: 8px;
           height: 8px;
           border-radius: 50%;
-          background: #5ef08f;
-          box-shadow: 0 0 12px rgba(94, 240, 143, 0.45);
-        }
-
-        .cameraControls {
-          position: absolute;
-          left: 14px;
-          right: 14px;
-          bottom: 14px;
-          display: flex;
-          gap: 10px;
-          z-index: 2;
-        }
-
-        .glassBtn {
-          flex: 1;
-          border: 1px solid rgba(255, 255, 255, 0.12);
-          background: rgba(0, 0, 0, 0.32);
-          color: #f5f7fb;
-          border-radius: 18px;
-          padding: 12px 14px;
-          font-size: 13px;
-          font-weight: 700;
-          backdrop-filter: blur(16px);
-          -webkit-backdrop-filter: blur(16px);
-        }
-
-        .glassBtn.primary {
-          background: linear-gradient(135deg, rgba(127, 115, 255, 0.8), rgba(79, 227, 255, 0.72));
-          color: #050608;
-        }
-
-        .chips {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          gap: 10px;
-          overflow-x: auto;
-          padding-bottom: 2px;
-          scrollbar-width: none;
-        }
-
-        .chips::-webkit-scrollbar {
-          display: none;
-        }
-
-        .chip {
-          flex: 0 0 auto;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          background: rgba(255, 255, 255, 0.05);
-          color: #f5f7fb;
-          border-radius: 999px;
-          padding: 10px 14px;
-          font-size: 13px;
-          white-space: nowrap;
-        }
-
-        .selectedImageCard {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          align-items: center;
-          gap: 12px;
-          padding: 12px;
-          border-radius: 20px;
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.08);
-        }
-
-        .selectedImage {
-          width: 54px;
-          height: 54px;
-          border-radius: 14px;
-          object-fit: cover;
-        }
-
-        .removeImage {
-          margin-left: auto;
-          background: transparent;
-          color: rgba(255, 255, 255, 0.8);
-          border: none;
-          font-size: 13px;
-        }
-
-        .chat {
-          position: relative;
-          z-index: 1;
-          flex: 1;
-          display: flex;
-          flex-direction: column;
-          gap: 12px;
-          overflow: auto;
-          padding: 4px 0 6px;
-        }
-
-        .row {
-          display: flex;
-          align-items: flex-end;
-          gap: 10px;
-        }
-
-        .row.user {
-          justify-content: flex-end;
-        }
-
-        .row.assistant {
-          justify-content: flex-start;
-        }
-
-        .avatar {
-          width: 30px;
-          height: 30px;
-          border-radius: 50%;
-          display: grid;
-          place-items: center;
-          font-size: 12px;
-          font-weight: 800;
-          flex: 0 0 auto;
-        }
-
-        .avatar.user {
-          color: #050608;
-          background: linear-gradient(135deg, #7f73ff, #4fe3ff);
-        }
-
-        .avatar.assistant {
-          background: rgba(255, 255, 255, 0.08);
-          color: #f5f7fb;
-        }
-
-        .bubble {
-          max-width: min(84%, 560px);
-          border-radius: 22px;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          padding: 14px 14px 12px;
-          backdrop-filter: blur(18px);
-          -webkit-backdrop-filter: blur(18px);
-          box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18);
-          overflow: hidden;
-        }
-
-        .bubble.user {
-          background: linear-gradient(135deg, rgba(127, 115, 255, 0.22), rgba(79, 227, 255, 0.12));
-          border-top-right-radius: 8px;
-        }
-
-        .bubble.assistant {
-          background: rgba(255, 255, 255, 0.06);
-          border-top-left-radius: 8px;
-        }
-
-        .text {
-          white-space: pre-wrap;
-          line-height: 1.48;
-          font-size: 15px;
-          letter-spacing: 0.01em;
-        }
-
-        .imgPreview {
-          width: 100%;
-          max-height: 220px;
-          object-fit: cover;
-          border-radius: 16px;
-          margin-bottom: 10px;
-          border: 1px solid rgba(255, 255, 255, 0.08);
-        }
-
-        .actions {
-          display: flex;
-          gap: 8px;
-          margin-top: 10px;
+          background: #ffd86b;
+          box-shadow: 0 0 12px rgba(255,216,107,.45);
         }
 
         .mini {
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          background: rgba(255, 255, 255, 0.06);
+          color: rgba(245,247,251,.55);
+        }
+
+        .reply {
+          min-height: 72px;
+          font-size: 18px;
+          line-height: 1.45;
+          white-space: pre-wrap;
+          color: #fff;
+        }
+
+        .toggles {
+          display: flex;
+          gap: 8px;
+          flex-wrap: wrap;
+          margin-top: 12px;
+        }
+
+        .toggle, .btn {
+          border: 1px solid rgba(255,255,255,.12);
+          background: rgba(255,255,255,.06);
           color: #f5f7fb;
           border-radius: 999px;
-          padding: 7px 10px;
+          padding: 10px 12px;
           font-size: 12px;
         }
 
-        .typing {
-          width: fit-content;
-          display: inline-flex;
-          gap: 6px;
-          align-items: center;
-          padding: 14px 16px;
-          border-radius: 18px;
-          background: rgba(255, 255, 255, 0.06);
-          border: 1px solid rgba(255, 255, 255, 0.1);
+        .toggle.on {
+          background: linear-gradient(135deg, rgba(127,115,255,.78), rgba(79,227,255,.70));
+          color: #050608;
+          font-weight: 800;
         }
 
-        .typing span {
-          width: 7px;
-          height: 7px;
-          border-radius: 50%;
-          background: rgba(255, 255, 255, 0.8);
-          animation: bounce 1s infinite ease-in-out;
-        }
-
-        .typing span:nth-child(2) {
-          animation-delay: 0.15s;
-        }
-
-        .typing span:nth-child(3) {
-          animation-delay: 0.3s;
-        }
-
-        @keyframes bounce {
-          0%,
-          80%,
-          100% {
-            transform: translateY(0);
-            opacity: 0.5;
-          }
-          40% {
-            transform: translateY(-5px);
-            opacity: 1;
-          }
-        }
-
-        .footerRow {
+        .controls {
           display: flex;
-          align-items: center;
-          justify-content: space-between;
           gap: 10px;
-          color: rgba(245, 247, 251, 0.48);
-          font-size: 12px;
-          padding: 0 4px;
+          margin-top: 12px;
         }
 
-        .errorTag {
-          color: #ff9b9b;
+        .btn {
+          flex: 1;
+          padding: 12px 14px;
         }
 
-        .composer {
-          position: relative;
-          z-index: 1;
-          display: flex;
-          align-items: flex-end;
-          gap: 10px;
-          border: 1px solid rgba(255, 255, 255, 0.1);
-          background: rgba(255, 255, 255, 0.08);
-          border-radius: 24px;
-          padding: 12px;
-          backdrop-filter: blur(22px);
-          -webkit-backdrop-filter: blur(22px);
-          box-shadow: 0 18px 50px rgba(0, 0, 0, 0.24);
-        }
-
-        .plus,
-        .send {
-          width: 46px;
-          height: 46px;
-          border: 0;
-          border-radius: 50%;
-          flex: 0 0 auto;
-          display: grid;
-          place-items: center;
-          font-size: 18px;
-          cursor: pointer;
-        }
-
-        .plus {
-          background: rgba(255, 255, 255, 0.08);
-          color: #f5f7fb;
-        }
-
-        .send {
+        .btn.primary {
           background: linear-gradient(135deg, #7f73ff, #4fe3ff);
           color: #050608;
           font-weight: 900;
         }
 
-        .send:disabled {
-          opacity: 0.55;
-          cursor: not-allowed;
+        .error {
+          margin-top: 10px;
+          color: #ff9b9b;
+          font-size: 12px;
         }
 
-        .input {
-          flex: 1;
-          border: 1px solid rgba(255, 255, 255, 0.08);
-          background: rgba(0, 0, 0, 0.22);
-          color: #f5f7fb;
-          border-radius: 18px;
-          min-height: 46px;
-          max-height: 140px;
-          padding: 13px 14px;
-          resize: none;
-          outline: none;
-          font-size: 16px;
-          line-height: 1.4;
+        .bottomHint {
+          display: flex;
+          gap: 8px;
+          justify-content: center;
+          flex-wrap: wrap;
+          padding-bottom: 4px;
         }
 
-        .input::placeholder {
-          color: rgba(245, 247, 251, 0.48);
+        .hintPill {
+          border: 1px solid rgba(255,255,255,.10);
+          background: rgba(0,0,0,.24);
+          color: rgba(245,247,251,.78);
+          border-radius: 999px;
+          padding: 8px 12px;
+          font-size: 12px;
+          backdrop-filter: blur(14px);
+          -webkit-backdrop-filter: blur(14px);
         }
 
         @media (max-width: 420px) {
-          .headline {
-            font-size: 22px;
+          .reply {
+            font-size: 16px;
           }
 
-          .bubble {
-            max-width: 88%;
+          .controls {
+            flex-direction: column;
+          }
+
+          .centerFrame {
+            inset: 12vh 8px 30vh;
           }
         }
       `}</style>
