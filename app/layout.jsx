@@ -1,6 +1,6 @@
 export const metadata = {
-  title: "Halo AI",
-  description: "Noa clone mode",
+  title: "Noa HUD",
+  description: "Halo-style AI assistant",
 };
 
 export default function RootLayout({ children }) {
