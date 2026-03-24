@@ -1,6 +1,39 @@
+export const runtime = "nodejs";
+
+const SYSTEM_PROMPT =
+  "Olet Noa: nopea, rauhallinen ja ultra-minimalistinen AI-avustaja. Vastaat suomeksi. Pidät vastaukset lyhyinä, selkeinä ja käytännöllisinä. Jos käyttäjä lähettää kuvan, kerrot vain tärkeimmän ja luet kuvassa olevan tekstin.";
+
 export async function POST(req) {
   try {
-    const { text, imageBase64 } = await req.json();
+    const { messages = [], model } = await req.json();
+
+    const groqMessages = [
+      { role: "system", content: SYSTEM_PROMPT },
+      ...messages.map((m) => {
+        if (m.role === "user" && m.imageBase64) {
+          return {
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: m.content?.trim() || "Mitä kuvassa näkyy?",
+              },
+              {
+                type: "image_url",
+                image_url: {
+                  url: m.imageBase64,
+                },
+              },
+            ],
+          };
+        }
+
+        return {
+          role: m.role === "assistant" ? "assistant" : "user",
+          content: String(m.content ?? ""),
+        };
+      }),
+    ];
 
     const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
       method: "POST",
@@ -9,26 +42,9 @@ export async function POST(req) {
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        model: "meta-llama/llama-4-scout-17b-16e-instruct",
-        messages: [
-          {
-            role: "system",
-            content: "Vastaa suomeksi lyhyesti ja selkeästi. Olet Noa-tyylinen avustaja.",
-          },
-          {
-            role: "user",
-            content: [
-              { type: "text", text: text || "Mitä kuvassa näkyy?" },
-              imageBase64
-                ? {
-                    type: "image_url",
-                    image_url: { url: imageBase64 },
-                  }
-                : null,
-            ].filter(Boolean),
-          },
-        ],
-        temperature: 0.3,
+        model: model || process.env.GROQ_MODEL || "llama-3.1-8b-instant",
+        messages: groqMessages,
+        temperature: 0.35,
         max_completion_tokens: 300,
       }),
     });
@@ -40,7 +56,7 @@ export async function POST(req) {
     }
 
     return Response.json({
-      reply: data?.choices?.[0]?.message?.content ?? "Ei vastausta",
+      reply: data?.choices?.[0]?.message?.content ?? "",
     });
   } catch (err) {
     return Response.json({ error: String(err) }, { status: 500 });
