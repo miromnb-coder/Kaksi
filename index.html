@@ -1,34 +1,753 @@
-<!DOCTYPE html>
-<html>
-<body>
+<!doctype html>
+<html lang="fi">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#050608" />
+    <title>Halo AI</title>
+    <style>
+      :root{
+        --bg:#050608;
+        --bg2:#0a0c11;
+        --card:rgba(255,255,255,.07);
+        --card2:rgba(255,255,255,.10);
+        --line:rgba(255,255,255,.10);
+        --text:#f5f7fb;
+        --muted:rgba(245,247,251,.68);
+        --muted2:rgba(245,247,251,.48);
+        --accent:#7f73ff;
+        --accent2:#4fe3ff;
+        --good:#5ef08f;
+        --warn:#ffd86b;
+        --danger:#ff6b6b;
+      }
 
-<input id="input" placeholder="Kysy jotain..." />
-<button onclick="send()">→</button>
+      *{ box-sizing:border-box; }
+      html,body{
+        margin:0;
+        min-height:100%;
+        background:
+          radial-gradient(circle at top, rgba(127,115,255,.22), transparent 28%),
+          radial-gradient(circle at right, rgba(79,227,255,.12), transparent 22%),
+          linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+        color:var(--text);
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      }
 
-<div id="output"></div>
+      body{
+        min-height:100svh;
+      }
 
-<script>
-async function send() {
-  const message = document.getElementById("input").value;
+      .app{
+        min-height:100svh;
+        display:flex;
+        flex-direction:column;
+        padding:16px 14px calc(14px + env(safe-area-inset-bottom));
+        gap:12px;
+        position:relative;
+        overflow:hidden;
+      }
 
-  const res = await fetch("/api/chat", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json"
-    },
-    body: JSON.stringify({ message })
-  });
+      .glow{
+        position:fixed;
+        inset:-20% auto auto 50%;
+        width:80vw;
+        height:80vw;
+        transform:translateX(-50%);
+        pointer-events:none;
+        background:radial-gradient(circle, rgba(127,115,255,.18), transparent 60%);
+        filter:blur(30px);
+      }
 
-  const data = await res.json();
+      .topbar{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:12px;
+        position:relative;
+        z-index:1;
+      }
 
-  if (data.error) {
-    document.getElementById("output").innerText =
-      "ERROR: " + JSON.stringify(data.error);
-  } else {
-    document.getElementById("output").innerText = data.reply;
-  }
-}
-</script>
+      .brand{
+        display:flex;
+        align-items:center;
+        gap:12px;
+      }
 
-</body>
+      .logo{
+        width:14px;
+        height:14px;
+        border-radius:50%;
+        background:linear-gradient(135deg, var(--accent), var(--accent2));
+        box-shadow:0 0 24px rgba(127,115,255,.6);
+        flex:0 0 auto;
+      }
+
+      .brandText{
+        display:flex;
+        flex-direction:column;
+        gap:3px;
+      }
+
+      .brandTitle{
+        font-weight:800;
+        font-size:18px;
+        letter-spacing:.2px;
+        line-height:1;
+      }
+
+      .status{
+        display:flex;
+        align-items:center;
+        gap:6px;
+        font-size:12px;
+        color:var(--muted);
+      }
+
+      .dot{
+        width:7px;
+        height:7px;
+        border-radius:50%;
+        background:var(--good);
+        box-shadow:0 0 12px rgba(94,240,143,.5);
+      }
+
+      .dot.busy{
+        background:var(--warn);
+        box-shadow:0 0 12px rgba(255,216,107,.45);
+      }
+
+      .btn{
+        border:1px solid var(--line);
+        background:rgba(255,255,255,.06);
+        color:var(--text);
+        border-radius:999px;
+        padding:10px 14px;
+        font-size:13px;
+        font-weight:600;
+        backdrop-filter:blur(18px);
+        -webkit-backdrop-filter:blur(18px);
+      }
+
+      .btn:active{ transform:translateY(1px); }
+
+      .hero{
+        position:relative;
+        z-index:1;
+        display:flex;
+        align-items:flex-start;
+        justify-content:space-between;
+        gap:14px;
+        border:1px solid var(--line);
+        background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.05));
+        border-radius:28px;
+        padding:18px;
+        box-shadow:0 18px 50px rgba(0,0,0,.28);
+        backdrop-filter:blur(22px);
+        -webkit-backdrop-filter:blur(22px);
+      }
+
+      .eyebrow{
+        font-size:11px;
+        color:var(--muted2);
+        letter-spacing:.16em;
+        text-transform:uppercase;
+        margin-bottom:10px;
+      }
+
+      .headline{
+        font-size:24px;
+        line-height:1.05;
+        font-weight:900;
+        letter-spacing:-.02em;
+        margin:0 0 10px;
+      }
+
+      .subline{
+        color:var(--muted);
+        font-size:14px;
+        line-height:1.45;
+        max-width:260px;
+      }
+
+      .switchWrap{
+        display:flex;
+        align-items:center;
+        gap:10px;
+        user-select:none;
+        font-size:13px;
+        color:var(--muted);
+        white-space:nowrap;
+        margin-top:2px;
+      }
+
+      .switch{
+        position:relative;
+        width:48px;
+        height:28px;
+        flex:0 0 auto;
+      }
+
+      .switch input{
+        display:none;
+      }
+
+      .track{
+        position:absolute;
+        inset:0;
+        border-radius:999px;
+        background:rgba(255,255,255,.16);
+        transition:.2s ease;
+      }
+
+      .thumb{
+        position:absolute;
+        width:22px;
+        height:22px;
+        top:3px;
+        left:3px;
+        border-radius:50%;
+        background:#fff;
+        transition:.2s ease;
+      }
+
+      .switch input:checked + .track{
+        background:linear-gradient(135deg, var(--accent), var(--accent2));
+      }
+
+      .switch input:checked + .track .thumb{
+        transform:translateX(20px);
+      }
+
+      .chips{
+        position:relative;
+        z-index:1;
+        display:flex;
+        gap:10px;
+        overflow-x:auto;
+        padding-bottom:2px;
+        scrollbar-width:none;
+      }
+      .chips::-webkit-scrollbar{ display:none; }
+
+      .chip{
+        flex:0 0 auto;
+        border:1px solid var(--line);
+        background:rgba(255,255,255,.05);
+        color:var(--text);
+        border-radius:999px;
+        padding:10px 14px;
+        font-size:13px;
+        white-space:nowrap;
+      }
+
+      .chat{
+        position:relative;
+        z-index:1;
+        flex:1;
+        display:flex;
+        flex-direction:column;
+        gap:12px;
+        overflow:auto;
+        padding:4px 0 6px;
+      }
+
+      .row{
+        display:flex;
+        align-items:flex-end;
+        gap:10px;
+      }
+
+      .row.user{ justify-content:flex-end; }
+      .row.assistant{ justify-content:flex-start; }
+
+      .avatar{
+        width:30px;
+        height:30px;
+        border-radius:50%;
+        display:grid;
+        place-items:center;
+        font-size:12px;
+        font-weight:800;
+        flex:0 0 auto;
+      }
+
+      .avatar.user{
+        color:#050608;
+        background:linear-gradient(135deg, var(--accent), var(--accent2));
+      }
+
+      .avatar.assistant{
+        background:rgba(255,255,255,.08);
+        color:var(--text);
+      }
+
+      .bubble{
+        max-width:min(84%, 560px);
+        border-radius:22px;
+        border:1px solid var(--line);
+        padding:14px 14px 12px;
+        backdrop-filter:blur(18px);
+        -webkit-backdrop-filter:blur(18px);
+        box-shadow:0 12px 30px rgba(0,0,0,.18);
+        overflow:hidden;
+      }
+
+      .bubble.user{
+        background:linear-gradient(135deg, rgba(127,115,255,.22), rgba(79,227,255,.12));
+        border-top-right-radius:8px;
+      }
+
+      .bubble.assistant{
+        background:rgba(255,255,255,.06);
+        border-top-left-radius:8px;
+      }
+
+      .text{
+        white-space:pre-wrap;
+        line-height:1.48;
+        font-size:15px;
+        letter-spacing:.01em;
+      }
+
+      .actions{
+        display:flex;
+        gap:8px;
+        margin-top:10px;
+      }
+
+      .mini{
+        border:1px solid var(--line);
+        background:rgba(255,255,255,.06);
+        color:var(--text);
+        border-radius:999px;
+        padding:7px 10px;
+        font-size:12px;
+      }
+
+      .typing{
+        width:fit-content;
+        display:inline-flex;
+        gap:6px;
+        align-items:center;
+        padding:14px 16px;
+        border-radius:18px;
+        background:rgba(255,255,255,.06);
+        border:1px solid var(--line);
+      }
+
+      .typing span{
+        width:7px;
+        height:7px;
+        border-radius:50%;
+        background:rgba(255,255,255,.8);
+        animation:bounce 1s infinite ease-in-out;
+      }
+
+      .typing span:nth-child(2){ animation-delay:.15s; }
+      .typing span:nth-child(3){ animation-delay:.3s; }
+
+      @keyframes bounce{
+        0%, 80%, 100%{ transform:translateY(0); opacity:.5; }
+        40%{ transform:translateY(-5px); opacity:1; }
+      }
+
+      .composer{
+        position:relative;
+        z-index:1;
+        display:flex;
+        align-items:flex-end;
+        gap:10px;
+        border:1px solid var(--line);
+        background:rgba(255,255,255,.08);
+        border-radius:24px;
+        padding:12px;
+        backdrop-filter:blur(22px);
+        -webkit-backdrop-filter:blur(22px);
+        box-shadow:0 18px 50px rgba(0,0,0,.24);
+      }
+
+      .plus, .send{
+        width:46px;
+        height:46px;
+        border:0;
+        border-radius:50%;
+        flex:0 0 auto;
+        display:grid;
+        place-items:center;
+        font-size:18px;
+        cursor:pointer;
+      }
+
+      .plus{
+        background:rgba(255,255,255,.08);
+        color:var(--text);
+      }
+
+      .send{
+        background:linear-gradient(135deg, var(--accent), var(--accent2));
+        color:#050608;
+        font-weight:900;
+      }
+
+      .send:disabled{
+        opacity:.55;
+        cursor:not-allowed;
+      }
+
+      .input{
+        flex:1;
+        border:1px solid rgba(255,255,255,.08);
+        background:rgba(0,0,0,.22);
+        color:var(--text);
+        border-radius:18px;
+        min-height:46px;
+        max-height:140px;
+        padding:13px 14px;
+        resize:none;
+        outline:none;
+        font-size:16px;
+        line-height:1.4;
+      }
+
+      .input::placeholder{
+        color:var(--muted2);
+      }
+
+      .footerRow{
+        display:flex;
+        align-items:center;
+        justify-content:space-between;
+        gap:10px;
+        color:var(--muted2);
+        font-size:12px;
+        padding:0 4px;
+      }
+
+      .errorTag{
+        color:#ff9b9b;
+      }
+
+      .empty{
+        display:flex;
+        flex-direction:column;
+        align-items:center;
+        justify-content:center;
+        min-height:200px;
+        border:1px dashed rgba(255,255,255,.12);
+        border-radius:24px;
+        color:var(--muted2);
+        text-align:center;
+        padding:24px;
+      }
+
+      .empty strong{
+        color:var(--text);
+        display:block;
+        margin-bottom:8px;
+        font-size:18px;
+      }
+
+      @media (max-width:420px){
+        .headline{ font-size:22px; }
+        .bubble{ max-width:88%; }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="glow"></div>
+    <main class="app">
+      <header class="topbar">
+        <div class="brand">
+          <div class="logo"></div>
+          <div class="brandText">
+            <div class="brandTitle">Halo AI</div>
+            <div class="status"><span id="statusDot" class="dot"></span><span id="statusText">Valmis</span></div>
+          </div>
+        </div>
+
+        <button id="clearBtn" class="btn">Clear</button>
+      </header>
+
+      <section class="hero">
+        <div>
+          <div class="eyebrow">Noa-style assistant</div>
+          <h1 class="headline">Puhu, kysy, tiivistä.</h1>
+          <div class="subline">
+            Minimalistinen, nopea ja puheeseen sopiva käyttöliittymä. Vastaukset pidetään lyhyinä ja selkeinä.
+          </div>
+        </div>
+
+        <label class="switchWrap" title="Auto speak">
+          <span>Auto speak</span>
+          <label class="switch">
+            <input id="autoSpeak" type="checkbox" checked />
+            <span class="track"><span class="thumb"></span></span>
+          </label>
+        </label>
+      </section>
+
+      <section class="chips" aria-label="Quick prompts">
+        <button class="chip" data-prompt="Kerro mitä näet.">Kerro mitä näet</button>
+        <button class="chip" data-prompt="Tiivistä tämä lyhyesti.">Tiivistä</button>
+        <button class="chip" data-prompt="Lue kaikki teksti kuvasta.">Lue teksti</button>
+        <button class="chip" data-prompt="Mikä on tärkein asia tästä?">Tärkein asia</button>
+      </section>
+
+      <section id="chat" class="chat" aria-live="polite"></section>
+
+      <div id="typing" class="typing" style="display:none">
+        <span></span><span></span><span></span>
+      </div>
+
+      <div class="footerRow">
+        <span id="countText">0 viestiä</span>
+        <span id="errorText" class="errorTag"></span>
+      </div>
+
+      <footer class="composer">
+        <button id="plusBtn" class="plus" title="Lisää nopea kysymys">⊕</button>
+        <textarea id="input" class="input" rows="1" placeholder="Mitä kuuluu?"></textarea>
+        <button id="sendBtn" class="send">→</button>
+      </footer>
+    </main>
+
+    <script>
+      const chatEl = document.getElementById("chat");
+      const inputEl = document.getElementById("input");
+      const sendBtn = document.getElementById("sendBtn");
+      const plusBtn = document.getElementById("plusBtn");
+      const clearBtn = document.getElementById("clearBtn");
+      const autoSpeakEl = document.getElementById("autoSpeak");
+      const typingEl = document.getElementById("typing");
+      const statusDot = document.getElementById("statusDot");
+      const statusText = document.getElementById("statusText");
+      const countText = document.getElementById("countText");
+      const errorText = document.getElementById("errorText");
+
+      const STORAGE_KEY = "halo_ai_chat_v1";
+      const MAX_HISTORY = 12;
+
+      let messages = loadMessages();
+
+      function defaultMessages() {
+        return [
+          { role: "assistant", text: "Hei. Kysy jotain tai kirjoita kuvaus." }
+        ];
+      }
+
+      function loadMessages() {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (!raw) return defaultMessages();
+          const parsed = JSON.parse(raw);
+          if (!Array.isArray(parsed) || !parsed.length) return defaultMessages();
+          return parsed;
+        } catch {
+          return defaultMessages();
+        }
+      }
+
+      function saveMessages() {
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(messages));
+      }
+
+      function setBusy(isBusy, label) {
+        typingEl.style.display = isBusy ? "inline-flex" : "none";
+        statusDot.classList.toggle("busy", isBusy);
+        statusText.textContent = label || (isBusy ? "Ajattelee…" : "Valmis");
+        sendBtn.disabled = isBusy;
+      }
+
+      function scrollToBottom() {
+        requestAnimationFrame(() => {
+          window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" });
+        });
+      }
+
+      function escapeHtml(str) {
+        return String(str)
+          .replaceAll("&", "&amp;")
+          .replaceAll("<", "&lt;")
+          .replaceAll(">", "&gt;")
+          .replaceAll('"', "&quot;")
+          .replaceAll("'", "&#39;");
+      }
+
+      function speak(text) {
+        if (!("speechSynthesis" in window)) return;
+        const t = String(text || "").trim();
+        if (!t) return;
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(t);
+        utterance.lang = "fi-FI";
+        utterance.rate = 1.02;
+        utterance.pitch = 1;
+        window.speechSynthesis.speak(utterance);
+      }
+
+      function render() {
+        chatEl.innerHTML = "";
+        countText.textContent = `${messages.length} viestiä`;
+
+        if (!messages.length) {
+          chatEl.innerHTML = `
+            <div class="empty">
+              <strong>Valmis.</strong>
+              Aloita kirjoittamalla viesti.
+            </div>
+          `;
+          return;
+        }
+
+        for (let i = 0; i < messages.length; i++) {
+          const m = messages[i];
+          const isUser = m.role === "user";
+
+          const row = document.createElement("div");
+          row.className = `row ${isUser ? "user" : "assistant"}`;
+
+          if (!isUser) {
+            const avatar = document.createElement("div");
+            avatar.className = "avatar assistant";
+            avatar.textContent = "N";
+            row.appendChild(avatar);
+          }
+
+          const bubble = document.createElement("div");
+          bubble.className = `bubble ${isUser ? "user" : "assistant"}`;
+
+          const text = document.createElement("div");
+          text.className = "text";
+          text.innerHTML = escapeHtml(m.text).replace(/\n/g, "<br>");
+          bubble.appendChild(text);
+
+          if (!isUser) {
+            const actions = document.createElement("div");
+            actions.className = "actions";
+
+            const copyBtn = document.createElement("button");
+            copyBtn.className = "mini";
+            copyBtn.textContent = "Copy";
+            copyBtn.onclick = async () => {
+              try {
+                await navigator.clipboard.writeText(m.text);
+              } catch {}
+            };
+
+            const speakBtn = document.createElement("button");
+            speakBtn.className = "mini";
+            speakBtn.textContent = "Speak";
+            speakBtn.onclick = () => speak(m.text);
+
+            actions.appendChild(copyBtn);
+            actions.appendChild(speakBtn);
+            bubble.appendChild(actions);
+          }
+
+          row.appendChild(bubble);
+
+          if (isUser) {
+            const avatar = document.createElement("div");
+            avatar.className = "avatar user";
+            avatar.textContent = "M";
+            row.appendChild(avatar);
+          }
+
+          chatEl.appendChild(row);
+        }
+      }
+
+      async function sendMessage(customText) {
+        const text = String(customText ?? inputEl.value).trim();
+        if (!text) return;
+
+        errorText.textContent = "";
+        messages.push({ role: "user", text });
+        render();
+        saveMessages();
+        inputEl.value = "";
+        autoGrow();
+        scrollToBottom();
+
+        setBusy(true, "Ajattelee…");
+
+        const history = messages
+          .slice(-MAX_HISTORY)
+          .map((m) => ({ role: m.role, content: m.text }));
+
+        try {
+          const res = await fetch("/api/chat", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              message: text,
+              history
+            }),
+          });
+
+          const data = await res.json();
+
+          if (!res.ok || data.error) {
+            const err = data.error ? JSON.stringify(data.error) : `HTTP ${res.status}`;
+            messages.push({ role: "assistant", text: `ERROR: ${err}` });
+            errorText.textContent = "Backend-virhe";
+          } else {
+            const reply = data.reply || "Ei vastausta.";
+            messages.push({ role: "assistant", text: reply });
+            if (autoSpeakEl.checked) speak(reply);
+          }
+
+          render();
+          saveMessages();
+          scrollToBottom();
+        } catch (err) {
+          messages.push({ role: "assistant", text: `ERROR: ${err.message || String(err)}` });
+          errorText.textContent = "Verkkovirhe";
+          render();
+          saveMessages();
+        } finally {
+          setBusy(false, "Valmis");
+        }
+      }
+
+      function autoGrow() {
+        inputEl.style.height = "auto";
+        inputEl.style.height = Math.min(inputEl.scrollHeight, 140) + "px";
+      }
+
+      inputEl.addEventListener("input", autoGrow);
+
+      inputEl.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault();
+          sendMessage();
+        }
+      });
+
+      sendBtn.addEventListener("click", () => sendMessage());
+      plusBtn.addEventListener("click", () => {
+        inputEl.value = "Kerro mitä näet.";
+        autoGrow();
+        inputEl.focus();
+      });
+
+      clearBtn.addEventListener("click", () => {
+        messages = defaultMessages();
+        saveMessages();
+        render();
+        errorText.textContent = "";
+        statusText.textContent = "Valmis";
+      });
+
+      document.querySelectorAll("[data-prompt]").forEach((btn) => {
+        btn.addEventListener("click", () => sendMessage(btn.dataset.prompt));
+      });
+
+      render();
+      saveMessages();
+      autoGrow();
+      scrollToBottom();
+    </script>
+  </body>
 </html>
